@@ -1,0 +1,65 @@
+<!DOCTYPE html>
+<html lang="he" dir="rtl">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="robots" content="noindex">
+<title>השאירו ביקורת</title>
+<style>
+  * { box-sizing: border-box; }
+  body { margin: 0; font-family: system-ui, -apple-system, "Segoe UI", Arial, sans-serif; background: #f4f5f7; color: #111; }
+  main { max-width: 440px; margin: 0 auto; padding: 32px 18px 40px; text-align: center; }
+  h1 { font-size: 24px; margin: 0 0 6px; }
+  p.sub { color: #556; margin: 0 0 24px; font-size: 16px; }
+  a.btn { display: block; text-decoration: none; border-radius: 14px; padding: 16px; margin: 0 0 12px; font-weight: 700; font-size: 18px; }
+  a.main { background: #1a73e8; color: #fff; font-size: 20px; padding: 20px; }
+  a.alt { background: #fff; color: #111; border: 1px solid #d5d8de; }
+  .msg { color: #8a1c1c; background: #fde8e8; border-radius: 10px; padding: 12px; }
+  .hidden { display: none; }
+</style>
+</head>
+<body>
+<main>
+  <h1 id="title">נשמח לביקורת שלך</h1>
+  <p class="sub" id="sub">בחרו איפה לכתוב:</p>
+  <div id="buttons"></div>
+  <div id="msg" class="msg hidden">הקישור לא זמין כרגע</div>
+</main>
+<script>
+const LINKS_API = "https://fmhldeeqkkkpxbvxwtoh.supabase.co/functions/v1/r/links/";
+const s = new URLSearchParams(location.search).get("s") || "";
+
+function addButton(label, url, cls) {
+  if (!/^https:\/\//i.test(url)) return;
+  const a = document.createElement("a");
+  a.className = "btn " + cls;
+  a.href = url;
+  a.rel = "noopener";
+  a.textContent = label;
+  document.getElementById("buttons").appendChild(a);
+}
+
+function fail() {
+  document.getElementById("sub").classList.add("hidden");
+  document.getElementById("msg").classList.remove("hidden");
+}
+
+(async () => {
+  if (!/^[A-Za-z0-9_-]{4,16}$/.test(s)) return fail();
+  try {
+    const r = await fetch(LINKS_API + encodeURIComponent(s));
+    if (!r.ok) return fail();
+    const d = await r.json();
+    if (d.business_name) document.getElementById("title").textContent = "נשמח לביקורת על " + d.business_name;
+    const extra = Array.isArray(d.extra) ? d.extra : [];
+    if (!extra.length) {
+      if (/^https:\/\//i.test(d.main)) location.replace(d.main); else fail();
+      return;
+    }
+    addButton("Google", d.main, "main");
+    extra.forEach((l) => addButton(l.label, l.url, "alt"));
+  } catch { fail(); }
+})();
+</script>
+</body>
+</html>

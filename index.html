@@ -25,6 +25,8 @@
   .err { background: #fde8e8; color: #8a1c1c; }
   .current { font-size: 13px; direction: ltr; text-align: left; word-break: break-all; color: #445; }
   .hidden { display: none; }
+  .extra { display: grid; grid-template-columns: 1fr 2fr; gap: 8px; margin-bottom: 8px; }
+  .extra input { font-size: 15px; padding: 10px; }
 </style>
 </head>
 <body>
@@ -53,6 +55,13 @@
     <label for="name">שם העסק</label>
     <input id="name" type="text">
 
+    <label>פלטפורמות נוספות (לא חובה)</label>
+    <p class="muted">אם ממלאים, הסורק יקבל מסך עם כפתורים במקום מעבר ישיר לגוגל.</p>
+    <div id="extras"></div>
+    <datalist id="platforms">
+      <option value="Easy"><option value="TripAdvisor"><option value="Facebook"><option value="Wolt"><option value="מדרג">
+    </datalist>
+
     <button id="save">שמור</button>
     <div id="msg" class="msg"></div>
   </section>
@@ -71,7 +80,32 @@ const $ = (id) => document.getElementById(id);
 const params = new URLSearchParams(location.search);
 const sticker = (params.get("s") || "").toUpperCase();
 
+const EXTRA_ROWS = 3;
+for (let i = 0; i < EXTRA_ROWS; i++) {
+  const row = document.createElement("div");
+  row.className = "extra";
+  row.innerHTML =
+    '<input class="xl" list="platforms" placeholder="שם (למשל Easy)">' +
+    '<input class="xu" type="url" dir="ltr" inputmode="url" placeholder="https://...">';
+  document.getElementById("extras").appendChild(row);
+}
+
+function readExtras() {
+  return [...document.querySelectorAll("#extras .extra")]
+    .map((r) => ({ label: r.querySelector(".xl").value.trim(), url: r.querySelector(".xu").value.trim() }))
+    .filter((l) => l.label || l.url);
+}
+
+function fillExtras(list) {
+  const rows = document.querySelectorAll("#extras .extra");
+  (list || []).slice(0, rows.length).forEach((l, i) => {
+    rows[i].querySelector(".xl").value = l.label || "";
+    rows[i].querySelector(".xu").value = l.url || "";
+  });
+}
+
 const ERR = {
+  bad_extra: "בפלטפורמה נוספת חסר שם או שהקישור לא מתחיל ב-https://",
   forbidden: "לחשבון הזה אין הרשאה",
   bad_code: "קוד מדבקה לא תקין",
   bad_url: "הקישור חייב להתחיל ב-https://",
@@ -115,6 +149,7 @@ async function loadCurrent(s) {
       $("current").textContent = d.target_url;
     }
     if (d.business_name) $("name").value = d.business_name;
+    fillExtras(d.extra_links);
   } catch { show("אין חיבור לשרת", false); }
 }
 
@@ -153,7 +188,7 @@ $("save").onclick = async () => {
     const r = await fetch(API, {
       method: "POST",
       headers: { "content-type": "application/json", Authorization: "Bearer " + (await token()), apikey: SUPABASE_KEY },
-      body: JSON.stringify({ s, target_url, business_name }),
+      body: JSON.stringify({ s, target_url, business_name, extra_links: readExtras() }),
     });
     const d = await r.json();
     if (r.status === 403) return denied();
