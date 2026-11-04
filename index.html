@@ -1,0 +1,163 @@
+<!DOCTYPE html>
+<html lang="he" dir="rtl">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="robots" content="noindex">
+<title>שיוך מדבקה</title>
+<style>
+  * { box-sizing: border-box; }
+  body { margin: 0; font-family: system-ui, -apple-system, "Segoe UI", Arial, sans-serif; background: #f4f5f7; color: #111; }
+  main { max-width: 480px; margin: 0 auto; padding: 20px 16px 40px; }
+  h1 { font-size: 22px; margin: 4px 0 16px; }
+  .card { background: #fff; border-radius: 14px; padding: 16px; box-shadow: 0 1px 3px rgba(0,0,0,.08); margin-bottom: 14px; }
+  label { display: block; font-size: 14px; font-weight: 600; margin: 12px 0 6px; }
+  input { width: 100%; font-size: 17px; padding: 12px; border: 1px solid #ccd; border-radius: 10px; background: #fff; }
+  input[dir="ltr"] { text-align: left; }
+  button { width: 100%; font-size: 18px; font-weight: 700; padding: 14px; border: 0; border-radius: 12px; margin-top: 16px; background: #0f7b4b; color: #fff; }
+  button.secondary { background: #e7e9ee; color: #111; font-size: 15px; font-weight: 600; padding: 10px; }
+  button:disabled { opacity: .6; }
+  .code { font-size: 28px; font-weight: 800; letter-spacing: 2px; direction: ltr; text-align: center; }
+  .muted { color: #667; font-size: 13px; }
+  .msg { padding: 12px; border-radius: 10px; margin-top: 14px; font-size: 15px; display: none; }
+  .ok { background: #e3f6ec; color: #0b5a37; }
+  .err { background: #fde8e8; color: #8a1c1c; }
+  .current { font-size: 13px; direction: ltr; text-align: left; word-break: break-all; color: #445; }
+  .hidden { display: none; }
+</style>
+</head>
+<body>
+<main>
+  <h1>שיוך מדבקה לעסק</h1>
+
+  <section id="pinCard" class="card hidden">
+    <label for="pin">סיסמת ניהול</label>
+    <input id="pin" type="password" autocomplete="current-password">
+    <button id="savePin">המשך</button>
+    <p class="muted">נשמרת בטלפון הזה בלבד.</p>
+  </section>
+
+  <section id="formCard" class="card hidden">
+    <div class="muted">קוד מדבקה</div>
+    <div id="codeView" class="code"></div>
+    <input id="code" class="hidden" dir="ltr" autocapitalize="characters" placeholder="קוד מדבקה">
+
+    <div id="currentBox" class="hidden">
+      <label>יעד נוכחי</label>
+      <div id="current" class="current"></div>
+    </div>
+
+    <label for="url">קישור לכתיבת ביקורת</label>
+    <input id="url" type="url" dir="ltr" inputmode="url" placeholder="https://g.page/r/.../review">
+    <button id="paste" class="secondary" type="button">הדבק מהלוח</button>
+
+    <label for="name">שם העסק</label>
+    <input id="name" type="text">
+
+    <button id="save">שמור</button>
+    <div id="msg" class="msg"></div>
+  </section>
+
+  <section class="card">
+    <button id="logout" class="secondary" type="button">החלף סיסמה</button>
+  </section>
+</main>
+
+<script>
+const API = "https://fmhldeeqkkkpxbvxwtoh.supabase.co/functions/v1/assign";
+const $ = (id) => document.getElementById(id);
+
+function getPin() { try { return localStorage.getItem("qr_admin_pin") || ""; } catch { return ""; } }
+function setPin(v) { try { v ? localStorage.setItem("qr_admin_pin", v) : localStorage.removeItem("qr_admin_pin"); } catch {} }
+
+function show(text, ok) {
+  const m = $("msg");
+  m.textContent = text;
+  m.className = "msg " + (ok ? "ok" : "err");
+  m.style.display = "block";
+}
+
+const ERR = {
+  bad_pin: "סיסמה שגויה",
+  bad_code: "קוד מדבקה לא תקין",
+  bad_url: "הקישור חייב להתחיל ב-https://",
+  not_found: "קוד המדבקה לא קיים במערכת",
+  server_not_configured: "השרת לא מוגדר (חסרה סיסמת ניהול)",
+  db_error: "שגיאת מסד נתונים",
+};
+
+const params = new URLSearchParams(location.search);
+const codeFromUrl = (params.get("code") || "").toUpperCase();
+
+function initForm() {
+  $("pinCard").classList.add("hidden");
+  $("formCard").classList.remove("hidden");
+  if (codeFromUrl) {
+    $("codeView").textContent = codeFromUrl;
+    $("code").value = codeFromUrl;
+    loadCurrent(codeFromUrl);
+  } else {
+    $("codeView").classList.add("hidden");
+    $("code").classList.remove("hidden");
+  }
+}
+
+async function loadCurrent(code) {
+  try {
+    const r = await fetch(API + "?code=" + encodeURIComponent(code), { headers: { "x-admin-pin": getPin() } });
+    const d = await r.json();
+    if (r.status === 401) { setPin(""); location.reload(); return; }
+    if (!r.ok) { show(ERR[d.error] || "שגיאה", false); return; }
+    if (d.target_url) {
+      $("currentBox").classList.remove("hidden");
+      $("current").textContent = d.target_url;
+    }
+    if (d.business_name) $("name").value = d.business_name;
+  } catch { show("אין חיבור לשרת", false); }
+}
+
+$("savePin").onclick = () => {
+  const v = $("pin").value.trim();
+  if (!v) return;
+  setPin(v);
+  initForm();
+};
+
+$("paste").onclick = async () => {
+  try { $("url").value = (await navigator.clipboard.readText()).trim(); }
+  catch { $("url").focus(); }
+};
+
+$("save").onclick = async () => {
+  const code = ($("code").value || "").trim().toUpperCase();
+  const target_url = $("url").value.trim();
+  const business_name = $("name").value.trim();
+  if (!code) return show("חסר קוד מדבקה", false);
+  if (!target_url) return show("חסר קישור", false);
+
+  $("save").disabled = true;
+  try {
+    const r = await fetch(API, {
+      method: "POST",
+      headers: { "content-type": "application/json", "x-admin-pin": getPin() },
+      body: JSON.stringify({ code, target_url, business_name }),
+    });
+    const d = await r.json();
+    if (r.status === 401) { setPin(""); show("סיסמה שגויה", false); setTimeout(() => location.reload(), 1200); return; }
+    if (!r.ok) return show(ERR[d.error] || "שגיאה", false);
+    show("נשמר. סרוק את המדבקה שוב כדי לבדוק.", true);
+    $("currentBox").classList.remove("hidden");
+    $("current").textContent = d.target_url;
+  } catch {
+    show("אין חיבור לשרת", false);
+  } finally {
+    $("save").disabled = false;
+  }
+};
+
+$("logout").onclick = () => { setPin(""); location.reload(); };
+
+if (getPin()) initForm(); else $("pinCard").classList.remove("hidden");
+</script>
+</body>
+</html>
