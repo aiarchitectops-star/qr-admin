@@ -5,6 +5,7 @@
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <meta name="robots" content="noindex">
 <title>שיוך מדבקה</title>
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
 <style>
   * { box-sizing: border-box; }
   body { margin: 0; font-family: system-ui, -apple-system, "Segoe UI", Arial, sans-serif; background: #f4f5f7; color: #111; }
@@ -30,12 +31,9 @@
 <main>
   <h1>שיוך מדבקה לעסק</h1>
 
-  <section id="pinCard" class="card hidden">
-    <label for="pin">סיסמת ניהול</label>
-    <input id="pin" type="password" autocomplete="current-password">
-    <button id="savePin">המשך</button>
-    <p id="pinErr" class="msg err">סיסמה שגויה</p>
-    <p class="muted">נשמרת בטלפון הזה בלבד.</p>
+  <section id="loginCard" class="card hidden">
+    <button id="login">התחבר עם Google</button>
+    <div id="loginMsg" class="msg err"></div>
   </section>
 
   <section id="formCard" class="card hidden">
@@ -58,16 +56,28 @@
     <button id="save">שמור</button>
     <div id="msg" class="msg"></div>
   </section>
-
 </main>
 
 <script>
-const API = "https://fmhldeeqkkkpxbvxwtoh.supabase.co/functions/v1/assign";
+const SUPABASE_URL = "https://fmhldeeqkkkpxbvxwtoh.supabase.co";
+const SUPABASE_KEY = "sb_publishable_uMCPhN4ipmWR89g4E2_8BQ_5Sx2y52J";
+const API = SUPABASE_URL + "/functions/v1/assign";
+
+const sb = supabase.createClient(SUPABASE_URL, SUPABASE_KEY, {
+  auth: { flowType: "pkce", detectSessionInUrl: true, persistSession: true },
+});
 const $ = (id) => document.getElementById(id);
 
-function getPin() { try { return localStorage.getItem("qr_admin_pin") || ""; } catch { return ""; } }
-function setPin(v) { try { v ? localStorage.setItem("qr_admin_pin", v) : localStorage.removeItem("qr_admin_pin"); } catch {} }
-function badPin() { setPin(""); try { sessionStorage.setItem("qr_bad_pin", "1"); } catch {} location.reload(); }
+const params = new URLSearchParams(location.search);
+const sticker = (params.get("s") || "").toUpperCase();
+
+const ERR = {
+  forbidden: "לחשבון הזה אין הרשאה",
+  bad_code: "קוד מדבקה לא תקין",
+  bad_url: "הקישור חייב להתחיל ב-https://",
+  not_found: "קוד המדבקה לא קיים במערכת",
+  db_error: "שגיאת מסד נתונים",
+};
 
 function show(text, ok) {
   const m = $("msg");
@@ -76,37 +86,30 @@ function show(text, ok) {
   m.style.display = "block";
 }
 
-const ERR = {
-  bad_pin: "סיסמה שגויה",
-  bad_code: "קוד מדבקה לא תקין",
-  bad_url: "הקישור חייב להתחיל ב-https://",
-  not_found: "קוד המדבקה לא קיים במערכת",
-  server_not_configured: "השרת לא מוגדר (חסרה סיסמת ניהול)",
-  db_error: "שגיאת מסד נתונים",
-};
-
-const params = new URLSearchParams(location.search);
-const codeFromUrl = (params.get("code") || "").toUpperCase();
-
-function initForm() {
-  $("pinCard").classList.add("hidden");
-  $("formCard").classList.remove("hidden");
-  if (codeFromUrl) {
-    $("codeView").textContent = codeFromUrl;
-    $("code").value = codeFromUrl;
-    loadCurrent(codeFromUrl);
-  } else {
-    $("codeView").classList.add("hidden");
-    $("code").classList.remove("hidden");
-  }
+function showLogin(errText) {
+  $("formCard").classList.add("hidden");
+  $("loginCard").classList.remove("hidden");
+  if (errText) { $("loginMsg").textContent = errText; $("loginMsg").style.display = "block"; }
 }
 
-async function loadCurrent(code) {
+async function token() {
+  const { data } = await sb.auth.getSession();
+  return data.session ? data.session.access_token : null;
+}
+
+async function denied() {
+  await sb.auth.signOut();
+  showLogin("לחשבון הזה אין הרשאה");
+}
+
+async function loadCurrent(s) {
   try {
-    const r = await fetch(API + "?code=" + encodeURIComponent(code), { headers: { "x-admin-pin": getPin() } });
+    const r = await fetch(API + "?s=" + encodeURIComponent(s), {
+      headers: { Authorization: "Bearer " + (await token()), apikey: SUPABASE_KEY },
+    });
     const d = await r.json();
-    if (r.status === 401) { badPin(); return; }
-    if (!r.ok) { show(ERR[d.error] || "שגיאה", false); return; }
+    if (r.status === 403) return denied();
+    if (!r.ok) return show(ERR[d.error] || "שגיאה", false);
     if (d.target_url) {
       $("currentBox").classList.remove("hidden");
       $("current").textContent = d.target_url;
@@ -115,11 +118,22 @@ async function loadCurrent(code) {
   } catch { show("אין חיבור לשרת", false); }
 }
 
-$("savePin").onclick = () => {
-  const v = $("pin").value.trim();
-  if (!v) return;
-  setPin(v);
-  initForm();
+function showForm() {
+  $("loginCard").classList.add("hidden");
+  $("formCard").classList.remove("hidden");
+  if (sticker) {
+    $("codeView").textContent = sticker;
+    $("code").value = sticker;
+    loadCurrent(sticker);
+  } else {
+    $("codeView").classList.add("hidden");
+    $("code").classList.remove("hidden");
+  }
+}
+
+$("login").onclick = async () => {
+  const back = location.origin + location.pathname + (sticker ? "?s=" + encodeURIComponent(sticker) : "");
+  await sb.auth.signInWithOAuth({ provider: "google", options: { redirectTo: back } });
 };
 
 $("paste").onclick = async () => {
@@ -128,21 +142,21 @@ $("paste").onclick = async () => {
 };
 
 $("save").onclick = async () => {
-  const code = ($("code").value || "").trim().toUpperCase();
+  const s = ($("code").value || "").trim().toUpperCase();
   const target_url = $("url").value.trim();
   const business_name = $("name").value.trim();
-  if (!code) return show("חסר קוד מדבקה", false);
+  if (!s) return show("חסר קוד מדבקה", false);
   if (!target_url) return show("חסר קישור", false);
 
   $("save").disabled = true;
   try {
     const r = await fetch(API, {
       method: "POST",
-      headers: { "content-type": "application/json", "x-admin-pin": getPin() },
-      body: JSON.stringify({ code, target_url, business_name }),
+      headers: { "content-type": "application/json", Authorization: "Bearer " + (await token()), apikey: SUPABASE_KEY },
+      body: JSON.stringify({ s, target_url, business_name }),
     });
     const d = await r.json();
-    if (r.status === 401) { badPin(); return; }
+    if (r.status === 403) return denied();
     if (!r.ok) return show(ERR[d.error] || "שגיאה", false);
     show("נשמר. סרוק את המדבקה שוב כדי לבדוק.", true);
     $("currentBox").classList.remove("hidden");
@@ -154,17 +168,14 @@ $("save").onclick = async () => {
   }
 };
 
-if (getPin()) {
-  initForm();
-} else {
-  $("pinCard").classList.remove("hidden");
-  try {
-    if (sessionStorage.getItem("qr_bad_pin")) {
-      $("pinErr").style.display = "block";
-      sessionStorage.removeItem("qr_bad_pin");
-    }
-  } catch {}
-}
+(async () => {
+  // Let supabase-js finish exchanging the ?code= from Google, then clean the URL
+  const { data } = await sb.auth.getSession();
+  if (params.has("code") || params.has("error")) {
+    history.replaceState(null, "", location.pathname + (sticker ? "?s=" + encodeURIComponent(sticker) : ""));
+  }
+  if (data.session) showForm(); else showLogin(params.get("error_description") || "");
+})();
 </script>
 </body>
 </html>
