@@ -34,6 +34,7 @@
     <label for="pin">סיסמת ניהול</label>
     <input id="pin" type="password" autocomplete="current-password">
     <button id="savePin">המשך</button>
+    <p id="pinErr" class="msg err">סיסמה שגויה</p>
     <p class="muted">נשמרת בטלפון הזה בלבד.</p>
   </section>
 
@@ -58,9 +59,6 @@
     <div id="msg" class="msg"></div>
   </section>
 
-  <section class="card">
-    <button id="logout" class="secondary" type="button">החלף סיסמה</button>
-  </section>
 </main>
 
 <script>
@@ -69,6 +67,7 @@ const $ = (id) => document.getElementById(id);
 
 function getPin() { try { return localStorage.getItem("qr_admin_pin") || ""; } catch { return ""; } }
 function setPin(v) { try { v ? localStorage.setItem("qr_admin_pin", v) : localStorage.removeItem("qr_admin_pin"); } catch {} }
+function badPin() { setPin(""); try { sessionStorage.setItem("qr_bad_pin", "1"); } catch {} location.reload(); }
 
 function show(text, ok) {
   const m = $("msg");
@@ -106,7 +105,7 @@ async function loadCurrent(code) {
   try {
     const r = await fetch(API + "?code=" + encodeURIComponent(code), { headers: { "x-admin-pin": getPin() } });
     const d = await r.json();
-    if (r.status === 401) { setPin(""); location.reload(); return; }
+    if (r.status === 401) { badPin(); return; }
     if (!r.ok) { show(ERR[d.error] || "שגיאה", false); return; }
     if (d.target_url) {
       $("currentBox").classList.remove("hidden");
@@ -143,7 +142,7 @@ $("save").onclick = async () => {
       body: JSON.stringify({ code, target_url, business_name }),
     });
     const d = await r.json();
-    if (r.status === 401) { setPin(""); show("סיסמה שגויה", false); setTimeout(() => location.reload(), 1200); return; }
+    if (r.status === 401) { badPin(); return; }
     if (!r.ok) return show(ERR[d.error] || "שגיאה", false);
     show("נשמר. סרוק את המדבקה שוב כדי לבדוק.", true);
     $("currentBox").classList.remove("hidden");
@@ -155,9 +154,17 @@ $("save").onclick = async () => {
   }
 };
 
-$("logout").onclick = () => { setPin(""); location.reload(); };
-
-if (getPin()) initForm(); else $("pinCard").classList.remove("hidden");
+if (getPin()) {
+  initForm();
+} else {
+  $("pinCard").classList.remove("hidden");
+  try {
+    if (sessionStorage.getItem("qr_bad_pin")) {
+      $("pinErr").style.display = "block";
+      sessionStorage.removeItem("qr_bad_pin");
+    }
+  } catch {}
+}
 </script>
 </body>
 </html>
